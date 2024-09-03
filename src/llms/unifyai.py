@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import cached_property, lru_cache, partial
 from typing import Any, Callable, Generator, Iterable, cast
 
-import unifyai  
+import unify
 import tiktoken
 from datasets.fingerprint import Hasher
 from tenacity import (
