@@ -86,9 +86,9 @@ class UnifyAI(LLM):
         return _retry_wrapper
 
     @cached_property
-    def client(self) -> unify.Client:  # Replace with Unify's client class
+    def clients(self) -> unify.Clients:  
         # Adapt this to Unify's client initialization
-        return unify.Client(
+        return unify.Clients(
             api_key=self.api_key,
             base_url=self.base_url,
             **self.kwargs,
