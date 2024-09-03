@@ -25,6 +25,7 @@ from ..._cachable._cachable import _is_primitive, _StrWithSeed
 from ...llms import (
     AI21,
     VLLM,
+    UnifyAI,
     Anthropic,
     Bedrock,
     Cohere,
