@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import cached_property, lru_cache, partial
 from typing import Any, Callable, Generator, Iterable, cast
 
-import unify  
+import unifyai  
 import tiktoken
 from datasets.fingerprint import Hasher
 from tenacity import (
@@ -86,7 +86,7 @@ class UnifyAI(LLM):
         return _retry_wrapper
 
     @cached_property
-    def clients(self) -> unify.clients:  
+    def client(self) -> unify.clients.Unify:    
         # Adapt this to Unify's client initialization
         return unify.clients(
             api_key=self.api_key,
