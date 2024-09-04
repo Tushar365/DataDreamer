@@ -6,6 +6,7 @@ from functools import cached_property, lru_cache, partial
 from typing import Any, Callable, Generator, Iterable, cast
 
 import unify
+from unify.clients import Unify as UnifyClient
 import tiktoken
 from datasets.fingerprint import Hasher
 from tenacity import (
