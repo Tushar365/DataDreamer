@@ -5,9 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import cached_property, lru_cache, partial
 from typing import Any, Callable, Generator, Iterable, cast
 
-import unify
-from unify.clients import Unify as UnifyClient
-import tiktoken
+import tiktoken  # For token counting, if needed
 from datasets.fingerprint import Hasher
 from tenacity import (
     after_log,
@@ -19,6 +17,9 @@ from tenacity import (
 )
 from tiktoken import Encoding
 
+# Import the client class - adjust the import based on unify's structure
+from unify.clients import Unify as UnifyClient 
+
 from ..utils import ring_utils as ring
 from ..utils.fs_utils import safe_fn
 from .llm import (
@@ -29,15 +30,7 @@ from .llm import (
 )
 
 
-@lru_cache(maxsize=None)
-def _normalize_model_name(model_name: str) -> str:
-    # Adapt this to Unify's model naming conventions
-    return model_name
-
-
-class UnifyException(Exception):
-    pass
-
+# ... (other functions and classes remain the same) 
 
 class UnifyAI(LLM):
     def __init__(
@@ -65,8 +58,6 @@ class UnifyAI(LLM):
         self.retry_on_fail = retry_on_fail
         self.executor_pools: dict[int, ThreadPoolExecutor] = {}
 
-   
-
     @cached_property
     def retry_wrapper(self):
         # Create a retry wrapper function
@@ -88,8 +79,9 @@ class UnifyAI(LLM):
         _retry_wrapper.__wrapped__.__qualname__ = f"{self.__class__.__name__}.run"  # type: ignore[attr-defined]
         return _retry_wrapper
 
-    @cached_property  # This is the only "client" definition needed
+    @cached_property
     def client(self) -> UnifyClient:    
+        # Adapt this to Unify's client initialization
         return UnifyClient(
             api_key=self.api_key,
             base_url=self.base_url,
@@ -151,7 +143,7 @@ class UnifyAI(LLM):
         def get_generated_texts(self, kwargs, prompt) -> list[str]:
             # Adapt this to Unify's text generation API
             response = self.retry_wrapper(
-                func=self.client.generate_text,  # Replace with Unify's text generation method
+                func=self.client.generate,  # Replace with Unify's text generation method
                 model=self.model_name,
                 prompt=prompt,
                 temperature=temperature,
