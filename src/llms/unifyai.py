@@ -65,6 +65,15 @@ class UnifyAI(LLM):
         self.executor_pools: dict[int, ThreadPoolExecutor] = {}
 
     @cached_property
+    def client(self) -> UnifyClient:    
+        # **Fix: Correctly initialize the UnifyClient**
+        return UnifyClient(
+            api_key=self.api_key,
+            base_url=self.base_url,
+            **self.kwargs,
+        )
+
+    @cached_property
     def retry_wrapper(self):
         # Create a retry wrapper function
         tenacity_logger = self.get_logger(key="retry", verbose=True, log_level=None)
