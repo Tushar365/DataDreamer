@@ -93,7 +93,7 @@ from .petals import Petals
 from .together import Together
 from .vertex_ai import VertexAI
 from .vllm import VLLM
-from .unifyai import UnifyAI
+from .unify import UnifyAI
 
 __all__ = [
     "LLM",
