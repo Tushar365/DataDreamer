@@ -65,14 +65,7 @@ class UnifyAI(LLM):
         self.retry_on_fail = retry_on_fail
         self.executor_pools: dict[int, ThreadPoolExecutor] = {}
 
-    @cached_property
-    def client(self) -> UnifyClient:    
-        # **Fix: Correctly initialize the UnifyClient**
-        return UnifyClient(
-            api_key=self.api_key,
-            base_url=self.base_url,
-            **self.kwargs,
-        )
+   
 
     @cached_property
     def retry_wrapper(self):
@@ -95,10 +88,9 @@ class UnifyAI(LLM):
         _retry_wrapper.__wrapped__.__qualname__ = f"{self.__class__.__name__}.run"  # type: ignore[attr-defined]
         return _retry_wrapper
 
-    @cached_property
-    def client(self) -> unify.clients.Unify:    
-        # Adapt this to Unify's client initialization
-        return unify.clients(
+    @cached_property  # This is the only "client" definition needed
+    def client(self) -> UnifyClient:    
+        return UnifyClient(
             api_key=self.api_key,
             base_url=self.base_url,
             **self.kwargs,
