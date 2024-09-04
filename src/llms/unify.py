@@ -71,7 +71,7 @@ class UnifyAI(LLM):
         )(_retry_wrapper)
 
     @cached_property
-    def client(self) -> unifyai.UnifyAI:
+    def client(self) -> unify:
         other_kwargs = {
             "model": self.model_name,
             "api_key": self.api_key,
