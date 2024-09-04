@@ -17,8 +17,8 @@ from tenacity import (
 )
 from tiktoken import Encoding
 
-# Import the client class - adjust the import based on unify's structure
-from unify.clients import Unify as UnifyClient 
+# Import the client class - adjust the import based on unify's structure 
+from unify.clients import Unify, AsyncUnify
 
 from ..utils import ring_utils as ring
 from ..utils.fs_utils import safe_fn
@@ -30,19 +30,17 @@ from .llm import (
 )
 
 
-# ... (other functions and classes remain the same) 
-
 class UnifyAI(LLM):
     def __init__(
         self,
         model_name: str,
-        system_prompt: None | str = None,
-        organization: None | str = None,
-        api_key: None | str = None,
-        base_url: None | str = None,
-        api_version: None | str = None,
+        system_prompt: str | None = None,
+        organization: str | None = None,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        api_version: str | None = None,
         retry_on_fail: bool = True,
-        cache_folder_path: None | str = None,
+        cache_folder_path: str | None = None,
         **kwargs,
     ):
         super().__init__(cache_folder_path=cache_folder_path)
@@ -53,41 +51,37 @@ class UnifyAI(LLM):
         self.api_version = api_version
         self.kwargs = kwargs
         self.system_prompt = system_prompt
-
-        # Setup API calling helpers
         self.retry_on_fail = retry_on_fail
         self.executor_pools: dict[int, ThreadPoolExecutor] = {}
 
     @cached_property
     def retry_wrapper(self):
-        # Create a retry wrapper function
         tenacity_logger = self.get_logger(key="retry", verbose=True, log_level=None)
 
-        @retry(
-            retry=retry_if_exception_type(unify.RateLimitError),  # Replace with Unify's RateLimitError
-            wait=wait_exponential(multiplier=1, min=10, max=60),
-            before_sleep=before_sleep_log(tenacity_logger, logging.INFO),
-            after=after_log(tenacity_logger, logging.INFO),
-            stop=stop_any(lambda _: not self.retry_on_fail),  # type: ignore[arg-type]
-            reraise=True,
-        )
-        # Add more retry decorators for other Unify exceptions
         def _retry_wrapper(func, **kwargs):
             return func(**kwargs)
 
-        _retry_wrapper.__wrapped__.__module__ = None  # type: ignore[attr-defined]
-        _retry_wrapper.__wrapped__.__qualname__ = f"{self.__class__.__name__}.run"  # type: ignore[attr-defined]
-        return _retry_wrapper
+        return retry(
+            retry=retry_if_exception_type(unify.RateLimitError),
+            wait=wait_exponential(multiplier=1, min=10, max=60),
+            before_sleep=before_sleep_log(tenacity_logger, logging.INFO),
+            after=after_log(tenacity_logger, logging.INFO),
+            stop=stop_any(lambda _: not self.retry_on_fail),
+            reraise=True,
+        )(_retry_wrapper)
 
     @cached_property
-    def client(self) -> UnifyClient:    
-        # Adapt this to Unify's client initialization
-        return UnifyClient(
-            api_key=self.api_key,
-            base_url=self.base_url,
-            **self.kwargs,
-        )
+    def client(self) -> unifyai.UnifyAI:
+        other_kwargs = {
+            "model": self.model_name,
+            "api_key": self.api_key,
+            "endpoint": f"{self.model_name}@{self.base_url}",
+        }
 
+        return UnifyClient(
+            client=Unify(**other_kwargs),
+            async_client=AsyncUnify(**other_kwargs),
+        )
     @cached_property
     def tokenizer(self) -> Encoding:
         # Adapt this to Unify's tokenizer
