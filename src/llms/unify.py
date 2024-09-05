@@ -16,7 +16,8 @@ from tenacity import (
     wait_exponential,
 )
 
-from unify.clients import Unify, AsyncUnify
+from unify.clients import AsyncUnify
+from unify.clients import Unify as UnifyClient
 from openai.types.chat import ChatCompletion  
 
 from ..utils import ring_utils as ring
