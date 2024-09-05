@@ -1,6 +1,7 @@
 import gc
 import logging
 import sys
+import openai
 from concurrent.futures import ThreadPoolExecutor
 from functools import cached_property, lru_cache, partial
 from typing import Any, Callable, Generator, Iterable, cast
@@ -15,8 +16,8 @@ from tenacity import (
     wait_exponential,
 )
 
-from unify.clients import Unify as UnifyClient, AsyncUnify
-from unify.types.chat import ChatCompletion  
+from unify.clients import Unify, AsyncUnify
+from openai.types.chat import ChatCompletion  
 
 from ..utils import ring_utils as ring
 from ..utils.fs_utils import safe_fn
