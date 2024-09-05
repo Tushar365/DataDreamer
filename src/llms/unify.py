@@ -4,7 +4,7 @@ import sys
 import openai
 from concurrent.futures import ThreadPoolExecutor
 from functools import cached_property, lru_cache, partial
-from typing import Any, Callable, Generator, Iterable, cast
+from typing import Any, Callable, Generator, Iterable, cast,Optional
 
 from datasets.fingerprint import Hasher
 from tenacity import (
