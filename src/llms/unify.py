@@ -4,8 +4,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from functools import cached_property, lru_cache, partial
 from typing import Any, Callable, Generator, Iterable, cast
-import unify
-import tiktoken  # For token counting, if needed
+
 from datasets.fingerprint import Hasher
 from tenacity import (
     after_log,
@@ -15,10 +14,9 @@ from tenacity import (
     stop_any,
     wait_exponential,
 )
-from tiktoken import Encoding
 
-# Import the client class - adjust the import based on unify's structure 
-from unify.clients import Unify, AsyncUnify
+from unify.clients import Unify as UnifyClient, AsyncUnify
+from unify.types.chat import ChatCompletion  
 
 from ..utils import ring_utils as ring
 from ..utils.fs_utils import safe_fn
@@ -30,19 +28,45 @@ from .llm import (
 )
 
 
+class UnifyException(Exception):
+    pass
+
+
 class UnifyAI(LLM):
+    """
+    A class for interacting with the Unify.ai platform for language model interactions.
+
+    This class supports both synchronous and asynchronous operations through separate
+    Unify clients. 
+    """
     def __init__(
         self,
         model_name: str,
-        system_prompt: str | None = None,
-        organization: str | None = None,
-        api_key: str | None = None,
-        base_url: str | None = None,
-        api_version: str | None = None,
+        system_prompt: None | str = None,
+        organization: None | str = None,
+        api_key: None | str = None,
+        base_url: None | str = None,
+        api_version: None | str = None,
         retry_on_fail: bool = True,
-        cache_folder_path: str | None = None,
+        cache_folder_path: None | str = None,
+        provider: Optional[str] = None,
         **kwargs,
     ):
+        """
+        Initializes the UnifyAI instance.
+
+        Args:
+            model_name (str): The name of the language model to use.
+            system_prompt (str, optional): A system prompt to provide context to the model.
+            organization (str, optional): The organization associated with the API key.
+            api_key (str, optional): The API key for accessing the Unify platform.
+            base_url (str, optional): The base URL for the Unify API.
+            api_version (str, optional): The version of the Unify API to use.
+            retry_on_fail (bool, default=True): Whether to retry API calls on failure.
+            cache_folder_path (str, optional): The path to the cache folder.
+            provider (str, optional): The name of the language model provider (e.g., "openai").
+            **kwargs: Additional keyword arguments to pass to the Unify clients.
+        """
         super().__init__(cache_folder_path=cache_folder_path)
         self.model_name = model_name
         self.organization = organization
@@ -51,11 +75,26 @@ class UnifyAI(LLM):
         self.api_version = api_version
         self.kwargs = kwargs
         self.system_prompt = system_prompt
+        self.provider = provider
+
+        # Setup API calling helpers
         self.retry_on_fail = retry_on_fail
         self.executor_pools: dict[int, ThreadPoolExecutor] = {}
 
+        # Initialize the Unify clients
+        self._client = self._get_client()
+        self._async_client = self._get_async_client()
+
     @cached_property
     def retry_wrapper(self):
+        """
+        Creates a retry wrapper function using `tenacity` to handle API call failures.
+
+        Retries on `unify.RateLimitError` and potentially other Unify exceptions.
+
+        Returns:
+            Callable: The retry wrapper function.
+        """
         tenacity_logger = self.get_logger(key="retry", verbose=True, log_level=None)
 
         def _retry_wrapper(func, **kwargs):
@@ -70,38 +109,51 @@ class UnifyAI(LLM):
             reraise=True,
         )(_retry_wrapper)
 
-    @cached_property
-    def client(self) -> unify.clients:
-        other_kwargs = {
-            "model": self.model_name,
-            "api_key": self.api_key,
-            "endpoint": f"{self.model_name}@{self.base_url}",
-        }
+    def _get_client(self) -> UnifyClient:
+        """
+        Initializes and returns a synchronous Unify client.
 
-        return UnifyClient(
-            client=Unify(**other_kwargs),
-            async_client=AsyncUnify(**other_kwargs),
-        )
-    @cached_property
-    def tokenizer(self) -> Encoding:
-        # Adapt this to Unify's tokenizer
+        Returns:
+            UnifyClient: The synchronous Unify client.
+        """
         try:
-            return tiktoken.encoding_for_model(self.model_name)
-        except KeyError:
-            return tiktoken.get_encoding("cl100k_base")
+            return UnifyClient(
+                api_key=self.api_key,
+                endpoint=f"{self.model_name}@{self.provider}",
+                **self.kwargs,
+            )
+        except Exception as e:
+            raise UnifyException(f"Failed to initialize Unify client: {str(e)}")
 
-    @ring.lru(maxsize=128)
-    def get_max_context_length(self, max_new_tokens: int) -> int:
-        # Adapt this to Unify's context length limits
-        return 4096 - max_new_tokens
+    def _get_async_client(self) -> AsyncUnify:
+        """
+        Initializes and returns an asynchronous Unify client.
 
-    def _get_max_output_length(self) -> None | int:
-        # Adapt this to Unify's output length limits
-        return None
+        Returns:
+            AsyncUnify: The asynchronous Unify client.
+        """
+        try:
+            return AsyncUnify(
+                api_key=self.api_key,
+                endpoint=f"{self.model_name}@{self.provider}",
+                **self.kwargs,
+            )
+        except Exception as e:
+            raise UnifyException(f"Failed to initialize Async Unify client: {str(e)}")
 
     @ring.lru(maxsize=5000)
     def count_tokens(self, value: str) -> int:
-        return len(self.tokenizer.encode(value))
+        """Counts the number of tokens in a string.
+
+        Args:
+            value: The string to count tokens for.
+
+        Returns:
+            The number of tokens in the string.
+        """
+        # TODO:  Implement proper token counting for Unify.
+        # For now, we are using a simple placeholder. 
+        return len(value.split()) 
 
     def _run_batch(
         self,
@@ -135,18 +187,19 @@ class UnifyAI(LLM):
 
         # Run the model using Unify's API
         def get_generated_texts(self, kwargs, prompt) -> list[str]:
-            # Adapt this to Unify's text generation API
+            # TODO:  Adapt to Unify's text generation API - refer to documentation
+            # Below is a placeholder - ensure parameter names and response handling are correct
             response = self.retry_wrapper(
-                func=self.client.generate,  # Replace with Unify's text generation method
-                model=self.model_name,
-                prompt=prompt,
+                func=self.client.generate, 
+                user_prompt=prompt,  
                 temperature=temperature,
                 top_p=top_p,
                 max_tokens=max_new_tokens,
                 n=n,
                 **kwargs,
             )
-            return [response]  # Adapt this based on Unify's response format
+            # Assuming Unify's generate returns a string
+            return [response]  
 
         if batch_size not in self.executor_pools:
             self.executor_pools[batch_size] = ThreadPoolExecutor(max_workers=batch_size)
@@ -161,28 +214,26 @@ class UnifyAI(LLM):
         else:
             return generated_texts_batch
 
-    # ... (rest of the code remains similar to the OpenAI class, but adapted for Unify)
+    # ... [Adapt other methods from the OpenAI code as needed] ...
 
     def unload_model(self):
-        # Delete cached client and tokenizer
+        """
+        Unloads the model and performs cleanup.
+        """
         if "client" in self.__dict__:
             del self.__dict__["client"]
-        if "tokenizer" in self.__dict__:
-            del self.__dict__["tokenizer"]
-
-        # Garbage collect
+        if "_async_client" in self.__dict__:
+            del self.__dict__["_async_client"]
+        # TODO:  Add any Unify-specific cleanup logic 
         gc.collect()
 
     def __getstate__(self):  # pragma: no cover
         state = super().__getstate__()
-
-        # Remove cached client or tokenizer before serializing
         state.pop("retry_wrapper", None)
         state.pop("client", None)
-        state.pop("tokenizer", None)
+        state.pop("_async_client", None)
         state["executor_pools"].clear()
-
+        # TODO: Add any Unify-specific serialization logic if needed
         return state
-
 
 __all__ = ["UnifyAI"]
