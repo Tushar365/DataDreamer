@@ -15,7 +15,7 @@ from tenacity import (
     stop_after_attempt,
 )
 
-from unify.clients.uni_llm  import UniLLMClient, Unify, AsyncUnify
+from unify.clients import Unify, AsyncUnify
 
 
 from ..utils import ring_utils as ring
