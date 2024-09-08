@@ -16,8 +16,7 @@ from tenacity import (
 )
 from unify.clients import ( 
     AsyncUnify, 
-    Unify as UnifyClient, 
-    RateLimitError  
+    Unify as UnifyClient,
 )
 
 from ..utils import ring_utils as ring
