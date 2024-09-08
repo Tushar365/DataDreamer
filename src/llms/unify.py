@@ -185,7 +185,7 @@ class UnifyAI(LLM):
         n: int = 1,
         stop: Optional[Union[str, List[str]]] = None,
         repetition_penalty: Optional[float] = None,
-        logit_bias: Optional[Dict[int, float]] = None,
+        logit_bias: Optional[dict[int, float]] = None,
         batch_size: int = DEFAULT_BATCH_SIZE,
         seed: Optional[int] = None,
         **kwargs,
