@@ -1,13 +1,10 @@
 import gc
 import logging
 import sys
-import openai
-import unify
 from concurrent.futures import ThreadPoolExecutor
-from functools import cached_property, lru_cache, partial
-from typing import Any, Callable, Generator, Iterable, cast,Optional
+from functools import cached_property, partial
+from typing import Any, Callable, Generator, Iterable, List, Optional, Union, cast
 
-from datasets.fingerprint import Hasher
 from tenacity import (
     after_log,
     before_sleep_log,
@@ -16,22 +13,18 @@ from tenacity import (
     stop_any,
     wait_exponential,
 )
-
 from unify.clients import AsyncUnify
 from unify.clients import Unify as UnifyClient
-from openai.types.chat import ChatCompletion  
 
+from .._llm import LLM, _check_max_new_tokens_possible, _check_temperature_and_top_p
 from ..utils import ring_utils as ring
-from ..utils.fs_utils import safe_fn
-from .llm import (
-    DEFAULT_BATCH_SIZE,
-    LLM,
-    _check_max_new_tokens_possible,
-    _check_temperature_and_top_p,
-)
+
+DEFAULT_BATCH_SIZE = 10
 
 
 class UnifyException(Exception):
+    """Custom exception for UnifyAI class."""
+
     pass
 
 
@@ -40,18 +33,19 @@ class UnifyAI(LLM):
     A class for interacting with the Unify.ai platform for language model interactions.
 
     This class supports both synchronous and asynchronous operations through separate
-    Unify clients. 
+    Unify clients.
     """
+
     def __init__(
         self,
         model_name: str,
-        system_prompt: None | str = None,
-        organization: None | str = None,
-        api_key: None | str = None,
-        base_url: None | str = None,
-        api_version: None | str = None,
+        system_prompt: Optional[str] = None,
+        organization: Optional[str] = None,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        api_version: Optional[str] = None,
         retry_on_fail: bool = True,
-        cache_folder_path: None | str = None,
+        cache_folder_path: Optional[str] = None,
         provider: Optional[str] = None,
         **kwargs,
     ):
@@ -67,7 +61,7 @@ class UnifyAI(LLM):
             api_version (str, optional): The version of the Unify API to use.
             retry_on_fail (bool, default=True): Whether to retry API calls on failure.
             cache_folder_path (str, optional): The path to the cache folder.
-            provider (str, optional): The name of the language model provider (e.g., "openai").
+            provider (str, optional): The name of the language model provider (e.g., "openai", "anthropic", etc.).
             **kwargs: Additional keyword arguments to pass to the Unify clients.
         """
         super().__init__(cache_folder_path=cache_folder_path)
@@ -89,7 +83,7 @@ class UnifyAI(LLM):
         self._async_client = self._get_async_client()
 
     @cached_property
-    def retry_wrapper(self):
+    def retry_wrapper(self) -> Callable:
         """
         Creates a retry wrapper function using `tenacity` to handle API call failures.
 
@@ -98,19 +92,20 @@ class UnifyAI(LLM):
         Returns:
             Callable: The retry wrapper function.
         """
-        tenacity_logger = self.get_logger(key="retry", verbose=True, log_level=None)
+        tenacity_logger = logging.getLogger(__name__)
 
-        def _retry_wrapper(func, **kwargs):
-            return func(**kwargs)
-
-        return retry(
+        @retry(
             retry=retry_if_exception_type(unify.RateLimitError),
             wait=wait_exponential(multiplier=1, min=10, max=60),
             before_sleep=before_sleep_log(tenacity_logger, logging.INFO),
             after=after_log(tenacity_logger, logging.INFO),
             stop=stop_any(lambda _: not self.retry_on_fail),
             reraise=True,
-        )(_retry_wrapper)
+        )
+        def _retry_wrapper(func: Callable, *args: Any, **kwargs: Any) -> Any:
+            return func(*args, **kwargs)
+
+        return _retry_wrapper
 
     def _get_client(self) -> UnifyClient:
         """
@@ -148,31 +143,71 @@ class UnifyAI(LLM):
     def count_tokens(self, value: str) -> int:
         """Counts the number of tokens in a string.
 
+        This method should use the Unify API or a compatible tokenizer to accurately count tokens.
+
         Args:
             value: The string to count tokens for.
 
         Returns:
             The number of tokens in the string.
         """
-        # TODO:  Implement proper token counting for Unify.
-        # For now, we are using a simple placeholder. 
-        return len(value.split()) 
+        # TODO (urgent): Replace placeholder with actual token counting using Unify API
+        #  or a tokenizer that aligns with how Unify counts tokens.
+        return len(value.split())
+
+    def get_max_context_length(self, max_new_tokens: int = 0) -> int:
+        """Gets the maximum context length for the model.
+
+        Args:
+            max_new_tokens: The maximum number of tokens that can be generated.
+
+        Returns:
+            The maximum context length.
+        """
+        # TODO (urgent): Fetch the actual maximum context length from Unify.
+        # This is a placeholder value - it might be inaccurate.
+        return 4096 - max_new_tokens
 
     def _run_batch(
         self,
-        max_length_func: Callable[[list[str]], int],
-        inputs: list[str],
-        max_new_tokens: None | int = None,
+        max_length_func: Callable[[List[str]], int],
+        inputs: List[str],
+        max_new_tokens: Optional[int] = None,
         temperature: float = 1.0,
         top_p: float = 0.0,
         n: int = 1,
-        stop: None | str | list[str] = None,
-        repetition_penalty: None | float = None,
-        logit_bias: None | dict[int, float] = None,
+        stop: Optional[Union[str, List[str]]] = None,
+        repetition_penalty: Optional[float] = None,
+        logit_bias: Optional[Dict[int, float]] = None,
         batch_size: int = DEFAULT_BATCH_SIZE,
-        seed: None | int = None,
+        seed: Optional[int] = None,
         **kwargs,
-    ) -> list[str] | list[list[str]]:
+    ) -> Union[List[str], List[List[str]]]:
+        """
+        Runs a batch of prompts through the Unify API.
+
+        Args:
+            max_length_func (Callable): Function to get the maximum length of a list of strings.
+            inputs (List[str]): List of prompts to process.
+            max_new_tokens (int, optional): Maximum number of new tokens to generate.
+            temperature (float, optional): Sampling temperature (0.0 - 1.0).
+            top_p (float, optional): Nucleus sampling probability (0.0 - 1.0).
+            n (int, optional): Number of responses to generate per prompt.
+            stop (str or List[str], optional): Stop sequence(s) for text generation.
+            repetition_penalty (float, optional): Repetition penalty (1.0 - 2.0).
+            logit_bias (Dict[int, float], optional): Logit bias for specific tokens.
+            batch_size (int, optional): Batch size for API requests.
+            seed (int, optional): Random seed for reproducibility.
+            **kwargs: Additional keyword arguments to pass to the Unify API.
+
+        Returns:
+            Union[List[str], List[List[str]]]: A list of generated responses.
+                If `n` is 1, each element is a string.
+                If `n` is greater than 1, each element is a list of strings (multiple responses per prompt).
+
+        Raises:
+            UnifyException: If there's an error during API interaction.
+        """
         prompts = inputs
 
         # Check max_new_tokens
@@ -188,55 +223,149 @@ class UnifyAI(LLM):
             temperature=temperature, top_p=top_p
         )
 
-        # Run the model using Unify's API
-        def get_generated_texts(self, kwargs, prompt) -> list[str]:
-            # TODO:  Adapt to Unify's text generation API - refer to documentation
-            # Below is a placeholder - ensure parameter names and response handling are correct
-            response = self.retry_wrapper(
-                func=self.client.generate, 
-                user_prompt=prompt,  
-                temperature=temperature,
-                top_p=top_p,
-                max_tokens=max_new_tokens,
-                n=n,
-                **kwargs,
-            )
-            # Assuming Unify's generate returns a string
-            return [response]  
-
         if batch_size not in self.executor_pools:
-            self.executor_pools[batch_size] = ThreadPoolExecutor(max_workers=batch_size)
+            self.executor_pools[batch_size] = ThreadPoolExecutor(
+                max_workers=batch_size
+            )
+
+        # Wrap API call with retry logic
+        def get_generated_texts(
+            self: "UnifyAI", kwargs: dict, prompt: str
+        ) -> List[str]:
+            try:
+                # Assuming Unify's API is similar to OpenAI's
+                response = self.retry_wrapper(
+                    func=self._client._generate,  # Access the protected method
+                    user_message=prompt,
+                    temperature=temperature,
+                    top_p=top_p,
+                    max_tokens=max_new_tokens,
+                    n=n,
+                    **kwargs,
+                )
+
+                # Assuming Unify returns generated text within a 'choices' list
+                # Adapt based on the actual API response structure
+                if isinstance(response, str):
+                    return [response]
+                elif hasattr(response, "choices"):
+                    return [
+                        choice.message.content.strip()
+                        for choice in response.choices
+                    ]
+                else:
+                    raise ValueError("Unexpected response format from Unify API")
+            except Exception as e:
+                raise UnifyException(
+                    f"Error during Unify API call: {str(e)}"
+                )
+
+        # Use thread pool for parallel processing
         generated_texts_batch = list(
             self.executor_pools[batch_size].map(
                 partial(get_generated_texts, self, kwargs), prompts
             )
         )
 
-        if n == 1:
-            return [batch[0] for batch in generated_texts_batch]
-        else:
-            return generated_texts_batch
+        return (
+            [batch[0] for batch in generated_texts_batch]
+            if n == 1
+            else generated_texts_batch
+        )
 
-    # ... [Adapt other methods from the OpenAI code as needed] ...
+    def _run(
+        self,
+        prompts: Iterable[str],
+        max_new_tokens: Optional[int] = None,
+        temperature: float = 1.0,
+        top_p: float = 0.0,
+        n: int = 1,
+        stop: Optional[Union[str, List[str]]] = None,
+        repetition_penalty: Optional[float] = None,
+        logit_bias: Optional[Dict[int, float]] = None,
+        batch_size: int = DEFAULT_BATCH_SIZE,
+        seed: Optional[int] = None,
+        return_generator: bool = False,
+        **kwargs,
+    ) -> Union[Generator[str, None, None], List[str], List[List[str]]]:
+        """
+        Generates text using the Unify API, handling both streaming and non-streaming responses.
+
+        Args:
+            prompts (Iterable[str]): The prompts to generate text from.
+            max_new_tokens (int, optional): The maximum number of new tokens to generate.
+            temperature (float, optional): The sampling temperature (0.0 - 1.0).
+            top_p (float, optional): The nucleus sampling probability (0.0 - 1.0).
+            n (int, optional): The number of responses to generate for each prompt.
+            stop (str or List[str], optional): Stop sequence(s) for text generation.
+            repetition_penalty (float, optional): Repetition penalty for text generation.
+            logit_bias (Dict[int, float], optional): Logit bias for specific tokens.
+            batch_size (int, optional): The batch size for processing prompts.
+            seed (int, optional): Random seed for reproducibility.
+            return_generator (bool, optional): If True, returns a generator for streaming responses. 
+                                              Otherwise, returns a list of responses.
+
+        Returns:
+            Union[Generator[str, None, None], List[str], List[List[str]]]: 
+                - If `return_generator` is True, returns a generator yielding strings (streaming responses).
+                - If `return_generator` is False and `n` is 1, returns a list of strings (one response per prompt).
+                - If `return_generator` is False and `n` is greater than 1, returns a list of lists of strings (multiple responses per prompt).
+        """
+        if return_generator:
+
+            def generator_wrapper():
+                for prompt in prompts:
+                    yield from self._run_batch(
+                        max_length_func=lambda x: max(len(s) for s in x),
+                        inputs=[prompt],
+                        max_new_tokens=max_new_tokens,
+                        temperature=temperature,
+                        top_p=top_p,
+                        n=n,
+                        stop=stop,
+                        repetition_penalty=repetition_penalty,
+                        logit_bias=logit_bias,
+                        batch_size=1,  # Ensure batch size of 1 for streaming
+                        seed=seed,
+                        stream=True,  # Enable streaming for the batch
+                        **kwargs,
+                    )
+
+            return generator_wrapper()
+        else:
+            return self._run_batch(
+                max_length_func=lambda x: max(len(s) for s in x),
+                inputs=list(prompts),
+                max_new_tokens=max_new_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                n=n,
+                stop=stop,
+                repetition_penalty=repetition_penalty,
+                logit_bias=logit_bias,
+                batch_size=batch_size,
+                seed=seed,
+                **kwargs,
+            )
 
     def unload_model(self):
-        """
-        Unloads the model and performs cleanup.
-        """
+        """Unloads the model and performs cleanup."""
         if "client" in self.__dict__:
             del self.__dict__["client"]
         if "_async_client" in self.__dict__:
             del self.__dict__["_async_client"]
-        # TODO:  Add any Unify-specific cleanup logic 
+        for pool in self.executor_pools.values():
+            pool.shutdown()
+        self.executor_pools.clear()
         gc.collect()
 
-    def __getstate__(self):  # pragma: no cover
+    def __getstate__(self) -> dict:
+        """Gets the state of the object for serialization."""
         state = super().__getstate__()
         state.pop("retry_wrapper", None)
         state.pop("client", None)
         state.pop("_async_client", None)
         state["executor_pools"].clear()
-        # TODO: Add any Unify-specific serialization logic if needed
         return state
 
 __all__ = ["UnifyAI"]
