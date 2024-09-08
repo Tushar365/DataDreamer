@@ -14,7 +14,8 @@ from tenacity import (
     wait_exponential,
     stop_after_attempt,
 )
-from .uni_llm import UniLLMClient, Unify, AsyncUnify
+import 
+from unify.chat.clients.uni_llm  import UniLLMClient, Unify, AsyncUnify
 
 
 from ..utils import ring_utils as ring
