@@ -16,8 +16,15 @@ from tenacity import (
 from unify.clients import AsyncUnify
 from unify.clients import Unify as UnifyClient
 
-from .._llm import LLM, _check_max_new_tokens_possible, _check_temperature_and_top_p
+
 from ..utils import ring_utils as ring
+from ..utils.fs_utils import safe_fn
+from .llm import (
+    DEFAULT_BATCH_SIZE,
+    LLM,
+    _check_max_new_tokens_possible,
+    _check_temperature_and_top_p,
+)
 
 DEFAULT_BATCH_SIZE = 10
 
