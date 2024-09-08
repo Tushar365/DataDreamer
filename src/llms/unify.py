@@ -14,10 +14,8 @@ from tenacity import (
     wait_exponential,
     stop_after_attempt,
 )
-from unify.clients import ( 
-    AsyncUnify, 
-    Unify as UnifyClient,
-)
+from .uni_llm import UniLLMClient, Unify, AsyncUnify
+
 
 from ..utils import ring_utils as ring
 from ..utils.fs_utils import safe_fn
