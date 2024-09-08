@@ -12,10 +12,13 @@ from tenacity import (
     retry_if_exception_type,
     stop_any,
     wait_exponential,
+    stop_after_attempt,
 )
-from unify.clients import AsyncUnify
-from unify.clients import Unify as UnifyClient
-
+from unify.clients import ( 
+    AsyncUnify, 
+    Unify as UnifyClient, 
+    RateLimitError  
+)
 
 from ..utils import ring_utils as ring
 from ..utils.fs_utils import safe_fn
