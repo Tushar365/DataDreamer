@@ -115,7 +115,7 @@ class UnifyAI(LLM):
 
         return _retry_wrapper
 
-    def _get_client(self) -> UnifyClient:
+    def _get_client(self) -> Unify:
         """
         Initializes and returns a synchronous Unify client.
 
@@ -123,7 +123,7 @@ class UnifyAI(LLM):
             UnifyClient: The synchronous Unify client.
         """
         try:
-            return UnifyClient(
+            return Unify(
                 api_key=self.api_key,
                 endpoint=f"{self.model_name}@{self.provider}",
                 **self.kwargs,
