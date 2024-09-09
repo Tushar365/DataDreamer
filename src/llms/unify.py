@@ -132,6 +132,7 @@ class UnifyAI(LLM):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         api_version: Optional[str] = None,
+        endpoint: Optional[str] = None,
         retry_on_fail: bool = True,
         cache_folder_path: Optional[str] = None,
         provider: Optional[str] = None,
@@ -158,6 +159,7 @@ class UnifyAI(LLM):
         self.api_key = api_key
         self.base_url = base_url
         self.api_version = api_version
+        self.endpoint = endpoint
         self.kwargs = kwargs
         self.system_prompt = system_prompt
         if self.system_prompt is None and _is_chat_model(self.model_name):
