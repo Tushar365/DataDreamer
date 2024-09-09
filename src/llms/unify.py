@@ -1,6 +1,7 @@
 import gc
 import logging
 import sys
+import openai
 from concurrent.futures import ThreadPoolExecutor
 from functools import cached_property, partial
 from typing import Any, Callable, Generator, Iterable, List, Optional, Union, cast
@@ -15,8 +16,8 @@ from tenacity import (
     stop_after_attempt,
 )
 
-from unify.clients import Unify, AsyncUnify
-
+from unify.clients import AsyncUnify
+from unify.clients import Unify as UnifyClient 
 
 from ..utils import ring_utils as ring
 from ..utils.fs_utils import safe_fn
@@ -103,7 +104,7 @@ class UnifyAI(LLM):
         tenacity_logger = logging.getLogger(__name__)
 
         @retry(
-            retry=retry_if_exception_type(unify.RateLimitError),
+            retry=retry_if_exception_type(openai.RateLimitErro),
             wait=wait_exponential(multiplier=1, min=10, max=60),
             before_sleep=before_sleep_log(tenacity_logger, logging.INFO),
             after=after_log(tenacity_logger, logging.INFO),
@@ -115,7 +116,7 @@ class UnifyAI(LLM):
 
         return _retry_wrapper
 
-    def _get_client(self) -> Unify:
+    def _get_client(self) -> UnifyClient:
         """
         Initializes and returns a synchronous Unify client.
 
@@ -123,10 +124,12 @@ class UnifyAI(LLM):
             UnifyClient: The synchronous Unify client.
         """
         try:
-            return Unify(
+            return UnifyClient(
                 api_key=self.api_key,
-                endpoint=f"{self.model_name}@{self.provider}",
-                **self.kwargs,
+                endpoint=self.endpoint,
+                model_name=self.model_name,
+                provider=self.provider,
+                **self.additional_params,
             )
         except Exception as e:
             raise UnifyException(f"Failed to initialize Unify client: {str(e)}")
@@ -141,8 +144,10 @@ class UnifyAI(LLM):
         try:
             return AsyncUnify(
                 api_key=self.api_key,
-                endpoint=f"{self.model_name}@{self.provider}",
-                **self.kwargs,
+                endpoint=self.endpoint,
+                model_name=self.model_name,
+                provider=self.provider,
+                **self.additional_params,
             )
         except Exception as e:
             raise UnifyException(f"Failed to initialize Async Unify client: {str(e)}")
