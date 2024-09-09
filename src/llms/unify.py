@@ -28,6 +28,13 @@ from .llm import (
     _check_temperature_and_top_p,
 )
 
+@lru_cache(maxsize=None)
+def _is_chat_model(model_name: str):
+    model_name = _normalize_model_name(model_name)
+    return (
+        _is_gpt_3_5(model_name) or _is_gpt_4(model_name)
+    ) and not model_name.endswith("-instruct")
+
 class UnifyException(Exception):
     """Custom exception for UnifyAI class."""
 
@@ -152,7 +159,6 @@ class UnifyAI(LLM):
         try:
             return UnifyClient(
                 api_key=self.api_key,
-                endpoint=self.endpoint,
                 model_name=self.model_name,
                 provider=self.provider,
                 **self.additional_params,
@@ -170,7 +176,6 @@ class UnifyAI(LLM):
         try:
             return AsyncUnify(
                 api_key=self.api_key,
-                endpoint=self.endpoint,
                 model_name=self.model_name,
                 provider=self.provider,
                 **self.additional_params,
