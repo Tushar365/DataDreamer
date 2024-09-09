@@ -5,6 +5,7 @@ import openai
 from concurrent.futures import ThreadPoolExecutor
 from functools import cached_property, partial
 from typing import Any, Callable, Generator, Iterable, List, Optional, Union, cast
+from tiktoken import Encoding
 
 from tenacity import (
     after_log,
@@ -13,7 +14,6 @@ from tenacity import (
     retry_if_exception_type,
     stop_any,
     wait_exponential,
-    stop_after_attempt,
 )
 
 from unify.clients import AsyncUnify
@@ -81,6 +81,8 @@ class UnifyAI(LLM):
         self.api_version = api_version
         self.kwargs = kwargs
         self.system_prompt = system_prompt
+        if self.system_prompt is None and _is_chat_model(self.model_name):
+            self.system_prompt = "You are a helpful assistant."
         self.provider = provider
 
         # Setup API calling helpers
@@ -88,32 +90,59 @@ class UnifyAI(LLM):
         self.executor_pools: dict[int, ThreadPoolExecutor] = {}
 
         # Initialize the Unify clients
-        self._client = self._get_client()
-        self._async_client = self._get_async_client()
+        #self._client = self._get_client()
+        #self._async_client = self._get_async_client()
 
     @cached_property
-    def retry_wrapper(self) -> Callable:
-        """
-        Creates a retry wrapper function using `tenacity` to handle API call failures.
-
-        Retries on `unify.RateLimitError` and potentially other Unify exceptions.
-
-        Returns:
-            Callable: The retry wrapper function.
-        """
-        tenacity_logger = logging.getLogger(__name__)
+    def retry_wrapper(self):
+        # Create a retry wrapper function
+        tenacity_logger = self.get_logger(key="retry", verbose=True, log_level=None)
 
         @retry(
-            retry=retry_if_exception_type(openai.RateLimitErro),
+            retry=retry_if_exception_type(openai.RateLimitError),
             wait=wait_exponential(multiplier=1, min=10, max=60),
             before_sleep=before_sleep_log(tenacity_logger, logging.INFO),
             after=after_log(tenacity_logger, logging.INFO),
-            stop=stop_any(lambda _: not self.retry_on_fail),
+            stop=stop_any(lambda _: not self.retry_on_fail),  # type: ignore[arg-type]
             reraise=True,
         )
-        def _retry_wrapper(func: Callable, *args: Any, **kwargs: Any) -> Any:
-            return func(*args, **kwargs)
+        @retry(
+            retry=retry_if_exception_type(openai.InternalServerError),
+            wait=wait_exponential(multiplier=1, min=3, max=300),
+            before_sleep=before_sleep_log(tenacity_logger, logging.INFO),
+            after=after_log(tenacity_logger, logging.INFO),
+            stop=stop_any(lambda _: not self.retry_on_fail),  # type: ignore[arg-type]
+            reraise=True,
+        )
+        @retry(
+            retry=retry_if_exception_type(openai.APIError),
+            wait=wait_exponential(multiplier=1, min=3, max=300),
+            before_sleep=before_sleep_log(tenacity_logger, logging.INFO),
+            after=after_log(tenacity_logger, logging.INFO),
+            stop=stop_any(lambda _: not self.retry_on_fail),  # type: ignore[arg-type]
+            reraise=True,
+        )
+        @retry(
+            retry=retry_if_exception_type(OpenAIException),
+            wait=wait_exponential(multiplier=1, min=3, max=300),
+            before_sleep=before_sleep_log(tenacity_logger, logging.INFO),
+            after=after_log(tenacity_logger, logging.INFO),
+            stop=stop_any(lambda _: not self.retry_on_fail),  # type: ignore[arg-type]
+            reraise=True,
+        )
+        @retry(
+            retry=retry_if_exception_type(openai.APIConnectionError),
+            wait=wait_exponential(multiplier=1, min=3, max=300),
+            before_sleep=before_sleep_log(tenacity_logger, logging.INFO),
+            after=after_log(tenacity_logger, logging.INFO),
+            stop=stop_any(lambda _: not self.retry_on_fail),  # type: ignore[arg-type]
+            reraise=True,
+        )
+        def _retry_wrapper(func, **kwargs):
+            return func(**kwargs)
 
+        _retry_wrapper.__wrapped__.__module__ = None  # type: ignore[attr-defined]
+        _retry_wrapper.__wrapped__.__qualname__ = f"{self.__class__.__name__}.run"  # type: ignore[attr-defined]
         return _retry_wrapper
 
     def _get_client(self) -> UnifyClient:

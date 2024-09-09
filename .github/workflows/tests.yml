@@ -79,6 +79,7 @@ jobs:
       env:
         HUGGING_FACE_HUB_TOKEN: ${{ secrets.HUGGING_FACE_HUB_TOKEN }}
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        UNIFY_API_KEY: ${{ secrets.UNIFY_API_KEY}}
     - name: Upload piplist to GitHub Actions artifacts
       uses: actions/upload-artifact@v4
       with:
