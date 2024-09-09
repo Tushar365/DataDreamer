@@ -202,7 +202,7 @@ class UnifyAI(LLM):
             reraise=True,
         )
         @retry(
-            retry=retry_if_exception_type(OpenAIException),
+            retry=retry_if_exception_type(UnifyException),
             wait=wait_exponential(multiplier=1, min=3, max=300),
             before_sleep=before_sleep_log(tenacity_logger, logging.INFO),
             after=after_log(tenacity_logger, logging.INFO),
