@@ -50,7 +50,6 @@ class UnifyAI(LLM):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         api_version: Optional[str] = None,
-        endpoint: Optional[str] = None,
         retry_on_fail: bool = True,
         cache_folder_path: Optional[str] = None,
         provider: Optional[str] = None,
@@ -75,17 +74,8 @@ class UnifyAI(LLM):
         self.model_name = model_name
         self.organization = organization
         self.api_key = api_key
-        if not self.api_key:
-            raise APIKeyNotFoundError("Unify API key is required")
         self.base_url = base_url
         self.api_version = api_version
-        if self.endpoint and (self.model or self.provider):
-            raise ValueError("If endpoint is provided, model and provider should not be specified.")
-
-        if self.endpoint:
-            self.model, self.provider = self.endpoint.split("@")
-        elif not (self.model and self.provider):
-            raise ValueError("Both model and provider must be specified if endpoint is not provided.")
         self.additional_params = kwargs
         self.system_prompt = system_prompt
         if self.system_prompt is None and _is_chat_model(self.model_name):
