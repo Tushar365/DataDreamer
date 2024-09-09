@@ -3,7 +3,7 @@ import logging
 import sys
 import openai
 from concurrent.futures import ThreadPoolExecutor
-from functools import cached_property, partial
+from functools import cached_property, lru_cache, partial
 from typing import Any, Callable, Generator, Iterable, List, Optional, Union, cast
 from tiktoken import Encoding
 
@@ -109,7 +109,7 @@ def _is_instruction_tuned(model_name: str):
         or model_name.endswith("-instruct")
     )
 
-    
+
 class UnifyException(Exception):
     """Custom exception for UnifyAI class."""
 
