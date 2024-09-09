@@ -157,10 +157,18 @@ class UnifyAI(LLM):
         self.model_name = model_name
         self.organization = organization
         self.api_key = api_key
+        if not self.api_key:
+            raise APIKeyNotFoundError("Unify API key is required")
         self.base_url = base_url
         self.api_version = api_version
-        self.endpoint = endpoint
-        self.kwargs = kwargs
+        if self.endpoint and (self.model or self.provider):
+            raise ValueError("If endpoint is provided, model and provider should not be specified.")
+
+        if self.endpoint:
+            self.model, self.provider = self.endpoint.split("@")
+        elif not (self.model and self.provider):
+            raise ValueError("Both model and provider must be specified if endpoint is not provided.")
+        self.additional_params = kwargs
         self.system_prompt = system_prompt
         if self.system_prompt is None and _is_chat_model(self.model_name):
             self.system_prompt = "You are a helpful assistant."
@@ -171,8 +179,8 @@ class UnifyAI(LLM):
         self.executor_pools: dict[int, ThreadPoolExecutor] = {}
 
         # Initialize the Unify clients
-        #self._client = self._get_client()
-        #self._async_client = self._get_async_client()
+        self._client = self._get_client()
+        self._async_client = self._get_async_client()
 
     @cached_property
     def retry_wrapper(self):
