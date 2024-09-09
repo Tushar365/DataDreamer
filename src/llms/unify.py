@@ -29,11 +29,83 @@ from .llm import (
 )
 
 @lru_cache(maxsize=None)
+def _normalize_model_name(model_name: str) -> str:
+    if ":" in model_name:  # pragma: no cover
+        # Handles extracting the model name from a fine-tune
+        # model name like "ft:babbage-002:org:datadreamer:xxxxxxx"
+        model_name = model_name.split(":")[1]
+    return model_name
+
+
+@lru_cache(maxsize=None)
+def _is_gpt_3(model_name: str):
+    model_name = _normalize_model_name(model_name)
+    return any(
+        gpt3_name in model_name for gpt3_name in ["davinci", "ada", "curie", "gpt-3-"]
+    )
+
+
+@lru_cache(maxsize=None)
+def _is_gpt_3_5(model_name: str):
+    model_name = _normalize_model_name(model_name)
+    return any(gpt35_name in model_name for gpt35_name in ["gpt-3.5-", "gpt-35-"])
+
+
+@lru_cache(maxsize=None)
+def _is_gpt_3_5_legacy(model_name: str):
+    model_name = _normalize_model_name(model_name)
+    return _is_gpt_3_5(model_name) and (
+        "-0613" in model_name
+        or (_is_instruction_tuned(model_name) and not _is_chat_model(model_name))
+    )
+
+
+@lru_cache(maxsize=None)
+def _is_gpt_4(model_name: str):
+    model_name = _normalize_model_name(model_name)
+    return (
+        model_name == "gpt-4"
+        or any(gpt4_name in model_name for gpt4_name in ["gpt-4-"])
+        or _is_gpt_4o(model_name)
+    )
+
+
+@lru_cache(maxsize=None)
+def _is_gpt_4o(model_name: str):
+    model_name = _normalize_model_name(model_name)
+    return any(gpt4_name in model_name for gpt4_name in ["gpt-4o"])
+
+
+@lru_cache(maxsize=None)
+def _is_gpt_mini(model_name: str):
+    model_name = _normalize_model_name(model_name)
+    return any(gpt_mini_name in model_name for gpt_mini_name in ["-mini"])
+
+
+@lru_cache(maxsize=None)
+def _is_128k_model(model_name: str):
+    model_name = _normalize_model_name(model_name)
+    return _is_gpt_4(model_name) and (
+        _is_gpt_4o(model_name) or "-preview" in model_name or "2024-04-09" in model_name
+    )
+
+
+@lru_cache(maxsize=None)
 def _is_chat_model(model_name: str):
     model_name = _normalize_model_name(model_name)
     return (
         _is_gpt_3_5(model_name) or _is_gpt_4(model_name)
     ) and not model_name.endswith("-instruct")
+
+
+@lru_cache(maxsize=None)
+def _is_instruction_tuned(model_name: str):
+    model_name = _normalize_model_name(model_name)
+    return (
+        _is_chat_model(model_name)
+        or model_name.startswith("text-")
+        or model_name.endswith("-instruct")
+    )
 
 class UnifyException(Exception):
     """Custom exception for UnifyAI class."""
