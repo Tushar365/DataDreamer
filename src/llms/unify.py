@@ -50,10 +50,9 @@ class UnifyAI(LLM):
         api_version: Optional[str] = None,
         provider: Optional[str] = None,
         **kwargs,
+        unify_client: Optional[UnifyClient] = None
+        async_unify_client: Optional[AsyncUnifyClient] = None
     ):
-        # -*- Provide the Unify client manually
-    unify_client: Optional[UnifyClient] = None
-    async_unify_client: Optional[AsyncUnifyClient] = None
         """
         Initializes the UnifyAI instance.
        
