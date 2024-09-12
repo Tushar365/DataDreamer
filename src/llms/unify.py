@@ -16,8 +16,11 @@ from tenacity import (
     wait_exponential,
 )
 
-from unify.clients import AsyncUnify
-from unify.clients import Unify as UnifyClient 
+try:
+    from unify.clients import Unify as UnifyClient, AsyncUnify as AsyncUnifyClient
+except ImportError:
+    logger.error("`unify` not installed")
+    raise
 
 from ..utils import ring_utils as ring
 from ..utils.fs_utils import safe_fn
@@ -27,90 +30,6 @@ from .llm import (
     _check_max_new_tokens_possible,
     _check_temperature_and_top_p,
 )
-
-@lru_cache(maxsize=None)
-def _normalize_model_name(model_name: str) -> str:
-    if ":" in model_name:  # pragma: no cover
-        # Handles extracting the model name from a fine-tune
-        # model name like "ft:babbage-002:org:datadreamer:xxxxxxx"
-        model_name = model_name.split(":")[1]
-    return model_name
-
-
-@lru_cache(maxsize=None)
-def _is_gpt_3(model_name: str):
-    model_name = _normalize_model_name(model_name)
-    return any(
-        gpt3_name in model_name for gpt3_name in ["davinci", "ada", "curie", "gpt-3-"]
-    )
-
-
-@lru_cache(maxsize=None)
-def _is_gpt_3_5(model_name: str):
-    model_name = _normalize_model_name(model_name)
-    return any(gpt35_name in model_name for gpt35_name in ["gpt-3.5-", "gpt-35-"])
-
-
-@lru_cache(maxsize=None)
-def _is_gpt_3_5_legacy(model_name: str):
-    model_name = _normalize_model_name(model_name)
-    return _is_gpt_3_5(model_name) and (
-        "-0613" in model_name
-        or (_is_instruction_tuned(model_name) and not _is_chat_model(model_name))
-    )
-
-
-@lru_cache(maxsize=None)
-def _is_gpt_4(model_name: str):
-    model_name = _normalize_model_name(model_name)
-    return (
-        model_name == "gpt-4"
-        or any(gpt4_name in model_name for gpt4_name in ["gpt-4-"])
-        or _is_gpt_4o(model_name)
-    )
-
-
-@lru_cache(maxsize=None)
-def _is_gpt_4o(model_name: str):
-    model_name = _normalize_model_name(model_name)
-    return any(gpt4_name in model_name for gpt4_name in ["gpt-4o"])
-
-
-@lru_cache(maxsize=None)
-def _is_gpt_mini(model_name: str):
-    model_name = _normalize_model_name(model_name)
-    return any(gpt_mini_name in model_name for gpt_mini_name in ["-mini"])
-
-
-@lru_cache(maxsize=None)
-def _is_128k_model(model_name: str):
-    model_name = _normalize_model_name(model_name)
-    return _is_gpt_4(model_name) and (
-        _is_gpt_4o(model_name) or "-preview" in model_name or "2024-04-09" in model_name
-    )
-
-
-@lru_cache(maxsize=None)
-def _is_chat_model(model_name: str):
-    model_name = _normalize_model_name(model_name)
-    return (
-        _is_gpt_3_5(model_name) or _is_gpt_4(model_name)
-    ) and not model_name.endswith("-instruct")
-
-
-@lru_cache(maxsize=None)
-def _is_instruction_tuned(model_name: str):
-    model_name = _normalize_model_name(model_name)
-    return (
-        _is_chat_model(model_name)
-        or model_name.startswith("text-")
-        or model_name.endswith("-instruct")
-    )
-
-class UnifyException(Exception):
-    """Custom exception for UnifyAI class."""
-
-    pass
 
 
 class UnifyAI(LLM):
@@ -129,9 +48,10 @@ class UnifyAI(LLM):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         api_version: Optional[str] = None,
-        retry_on_fail: bool = True,
-        cache_folder_path: Optional[str] = None,
         provider: Optional[str] = None,
+         -*- Provide the Unify client manually
+        unify_client: Optional[UnifyClient] = None
+        async_unify_client: Optional[AsyncUnifyClient] = None
         **kwargs,
     ):
         """
@@ -157,104 +77,48 @@ class UnifyAI(LLM):
         self.api_version = api_version
         self.additional_params = kwargs
         self.system_prompt = system_prompt
-        if self.system_prompt is None and _is_chat_model(self.model_name):
-            self.system_prompt = "You are a helpful assistant."
         self.provider = provider
 
-        # Setup API calling helpers
-        self.retry_on_fail = retry_on_fail
-        self.executor_pools: dict[int, ThreadPoolExecutor] = {}
+        
 
-        # Initialize the Unify clients
-        self._client = self._get_client()
-        self._async_client = self._get_async_client()
+    def get_client(self) -> UnifyClient:
+        if self.unify_client:
+            return self.unify_client
+        _additional_params: Dict[str, Any] = {}    
+        if self.api_key:
+            _additional_params["api_key"] = self.api_key
+        if self.endpoint:
+            _additional_params["endpoint"] = self.endpoint
+        elif self.model and self.provider:
+            _additional_params["model"] = self.model
+            _additional_params["provider"] = self.provider
+        if self.client_params:
+            _additional_params.update(self.additional_params)
+        return UnifyClient(**_additional_params)
 
-    @cached_property
-    def retry_wrapper(self):
-        # Create a retry wrapper function
-        tenacity_logger = self.get_logger(key="retry", verbose=True, log_level=None)
+    
 
-        @retry(
-            retry=retry_if_exception_type(openai.RateLimitError),
-            wait=wait_exponential(multiplier=1, min=10, max=60),
-            before_sleep=before_sleep_log(tenacity_logger, logging.INFO),
-            after=after_log(tenacity_logger, logging.INFO),
-            stop=stop_any(lambda _: not self.retry_on_fail),  # type: ignore[arg-type]
-            reraise=True,
-        )
-        @retry(
-            retry=retry_if_exception_type(openai.InternalServerError),
-            wait=wait_exponential(multiplier=1, min=3, max=300),
-            before_sleep=before_sleep_log(tenacity_logger, logging.INFO),
-            after=after_log(tenacity_logger, logging.INFO),
-            stop=stop_any(lambda _: not self.retry_on_fail),  # type: ignore[arg-type]
-            reraise=True,
-        )
-        @retry(
-            retry=retry_if_exception_type(openai.APIError),
-            wait=wait_exponential(multiplier=1, min=3, max=300),
-            before_sleep=before_sleep_log(tenacity_logger, logging.INFO),
-            after=after_log(tenacity_logger, logging.INFO),
-            stop=stop_any(lambda _: not self.retry_on_fail),  # type: ignore[arg-type]
-            reraise=True,
-        )
-        @retry(
-            retry=retry_if_exception_type(UnifyException),
-            wait=wait_exponential(multiplier=1, min=3, max=300),
-            before_sleep=before_sleep_log(tenacity_logger, logging.INFO),
-            after=after_log(tenacity_logger, logging.INFO),
-            stop=stop_any(lambda _: not self.retry_on_fail),  # type: ignore[arg-type]
-            reraise=True,
-        )
-        @retry(
-            retry=retry_if_exception_type(openai.APIConnectionError),
-            wait=wait_exponential(multiplier=1, min=3, max=300),
-            before_sleep=before_sleep_log(tenacity_logger, logging.INFO),
-            after=after_log(tenacity_logger, logging.INFO),
-            stop=stop_any(lambda _: not self.retry_on_fail),  # type: ignore[arg-type]
-            reraise=True,
-        )
-        def _retry_wrapper(func, **kwargs):
-            return func(**kwargs)
-
-        _retry_wrapper.__wrapped__.__module__ = None  # type: ignore[attr-defined]
-        _retry_wrapper.__wrapped__.__qualname__ = f"{self.__class__.__name__}.run"  # type: ignore[attr-defined]
-        return _retry_wrapper
-
-    def _get_client(self) -> UnifyClient:
-        """
-        Initializes and returns a synchronous Unify client.
-
-        Returns:
-            UnifyClient: The synchronous Unify client.
-        """
-        try:
-            return UnifyClient(
-                api_key=self.api_key,
-                model_name=self.model_name,
-                provider=self.provider,
-                **self.additional_params,
-            )
-        except Exception as e:
-            raise UnifyException(f"Failed to initialize Unify client: {str(e)}")
-
-    def _get_async_client(self) -> AsyncUnify:
+    def get_async_client(self) -> AsyncUnifyClient:
+        if self.async_unify_client:
+            return self.async_unify_client
         """
         Initializes and returns an asynchronous Unify client.
 
         Returns:
             AsyncUnify: The asynchronous Unify client.
         """
-        try:
-            return AsyncUnify(
-                api_key=self.api_key,
-                model_name=self.model_name,
-                provider=self.provider,
-                **self.additional_params,
-            )
-        except Exception as e:
-            raise UnifyException(f"Failed to initialize Async Unify client: {str(e)}")
-
+        _additional_params: Dict[str, Any] = {}    
+        if self.api_key:
+            _additional_params["api_key"] = self.api_key
+        if self.endpoint:
+            _additional_params["endpoint"] = self.endpoint
+        elif self.model and self.provider:
+            _additional_params["model"] = self.model
+            _additional_params["provider"] = self.provider
+        if self.client_params:
+            _additional_params.update(self.additional_params)
+        return AsyncUnifyClient(**_additional_params)
+        
     @ring.lru(maxsize=5000)
     def count_tokens(self, value: str) -> int:
         """Counts the number of tokens in a string.
