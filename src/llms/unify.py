@@ -49,13 +49,16 @@ class UnifyAI(LLM):
         base_url: Optional[str] = None,
         api_version: Optional[str] = None,
         provider: Optional[str] = None,
-         -*- Provide the Unify client manually
-        unify_client: Optional[UnifyClient] = None
-        async_unify_client: Optional[AsyncUnifyClient] = None
         **kwargs,
     ):
+        # -*- Provide the Unify client manually
+    unify_client: Optional[UnifyClient] = None
+    async_unify_client: Optional[AsyncUnifyClient] = None
         """
         Initializes the UnifyAI instance.
+       
+        unify_client: Optional[UnifyClient] = None
+        async_unify_client: Optional[AsyncUnifyClient] = None
 
         Args:
             model_name (str): The name of the language model to use.
