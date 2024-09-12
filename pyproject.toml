@@ -82,6 +82,9 @@ exclude_lines = [
   "pragma: no cover",
 ]   
 
+[mypy-unify.clients]
+ignore_missing_imports = True
+
 [tool.docs.sh]
 docs_author = "Ajay Patel"
 docs_author_website = "https://ajayp.app"
