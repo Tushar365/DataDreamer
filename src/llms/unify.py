@@ -1,10 +1,19 @@
 import gc
 import logging
 import sys
-import openai
 from concurrent.futures import ThreadPoolExecutor
 from functools import cached_property, lru_cache, partial
-from typing import Any, Callable, Generator, Iterable, List, Optional, Union, cast
+from typing import (
+    Any,
+    Callable,
+    Generator,
+    Iterable,
+    List,
+    Optional,
+    Union,
+    cast,
+    Dict,
+)
 from tiktoken import Encoding
 
 from tenacity import (
@@ -16,7 +25,12 @@ from tenacity import (
     wait_exponential,
 )
 
-from unify.clients import Unify as UnifyClient, AsyncUnify as AsyncUnifyClient
+try:
+    from unify.clients import Unify as UnifyClient, AsyncUnify as AsyncUnifyClient
+except ImportError:
+    raise ImportError(
+        "Could not import unify client, please install it with `pip install unify-client`"
+    )
 
 
 from ..utils import ring_utils as ring
@@ -27,6 +41,8 @@ from .llm import (
     _check_max_new_tokens_possible,
     _check_temperature_and_top_p,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class UnifyAI(LLM):
@@ -46,15 +62,15 @@ class UnifyAI(LLM):
         base_url: Optional[str] = None,
         api_version: Optional[str] = None,
         provider: Optional[str] = None,
-        #Initializes the UnifyAI instance.
-       
+        cache_folder_path: Optional[str] = None,
+        # Initializes the UnifyAI instance.
         unify_client: Optional[UnifyClient] = None,
         async_unify_client: Optional[AsyncUnifyClient] = None,
         **kwargs,
     ):
         """
         Initializes the UnifyAI instance.
-       
+
         unify_client: Optional[UnifyClient] = None
         async_unify_client: Optional[AsyncUnifyClient] = None
 
@@ -79,47 +95,58 @@ class UnifyAI(LLM):
         self.additional_params = kwargs
         self.system_prompt = system_prompt
         self.provider = provider
+        self.unify_client = unify_client
+        self.async_unify_client = async_unify_client
+        self.endpoint = kwargs.get("endpoint", None)
+        self.model = kwargs.get("model", None)
+        self.client_params = kwargs.get("client_params", {})
+        self.executor_pools: Dict[int, ThreadPoolExecutor] = {}
 
-        
-
-    def get_client(self) -> UnifyClient:
-        if self.unify_client:
-            return self.unify_client
-        _additional_params: Dict[str, Any] = {}    
-        if self.api_key:
-            _additional_params["api_key"] = self.api_key
-        if self.endpoint:
-            _additional_params["endpoint"] = self.endpoint
-        elif self.model and self.provider:
-            _additional_params["model"] = self.model
-            _additional_params["provider"] = self.provider
-        if self.client_params:
-            _additional_params.update(self.additional_params)
-        return UnifyClient(**_additional_params)
-
-    
-
-    def get_async_client(self) -> AsyncUnifyClient:
-        if self.async_unify_client:
-            return self.async_unify_client
+    @property
+    def client(self) -> UnifyClient:
         """
-        Initializes and returns an asynchronous Unify client.
+        Initializes and returns a synchronous Unify client.
 
         Returns:
-            AsyncUnify: The asynchronous Unify client.
+            Unify: The synchronous Unify client.
         """
-        _additional_params: Dict[str, Any] = {}    
-        if self.api_key:
-            _additional_params["api_key"] = self.api_key
-        if self.endpoint:
-            _additional_params["endpoint"] = self.endpoint
-        elif self.model and self.provider:
-            _additional_params["model"] = self.model
-            _additional_params["provider"] = self.provider
-        if self.client_params:
-            _additional_params.update(self.additional_params)
-        return AsyncUnifyClient(**_additional_params)
-        
+        if self.unify_client is None:
+            _additional_params: Dict[str, Any] = {}
+            if self.api_key:
+                _additional_params["api_key"] = self.api_key
+            if self.endpoint:
+                _additional_params["endpoint"] = self.endpoint
+            elif self.model and self.provider:
+                _additional_params["model"] = self.model
+                _additional_params["provider"] = self.provider
+            if self.client_params:
+                _additional_params.update(self.additional_params)
+            self.unify_client = UnifyClient(**_additional_params)
+        return self.unify_client
+
+
+    @property
+    def _async_client(self) -> AsyncUnifyClient:
+        if self.async_unify_client is None:
+            """
+            Initializes and returns an asynchronous Unify client.
+
+            Returns:
+                AsyncUnify: The asynchronous Unify client.
+            """
+            _additional_params: Dict[str, Any] = {}
+            if self.api_key:
+                _additional_params["api_key"] = self.api_key
+            if self.endpoint:
+                _additional_params["endpoint"] = self.endpoint
+            elif self.model and self.provider:
+                _additional_params["model"] = self.model
+                _additional_params["provider"] = self.provider
+            if self.client_params:
+                _additional_params.update(self.additional_params)
+            self.async_unify_client = AsyncUnifyClient(**_additional_params)
+        return self.async_unify_client
+
     @ring.lru(maxsize=5000)
     def count_tokens(self, value: str) -> int:
         """Counts the number of tokens in a string.
@@ -148,6 +175,17 @@ class UnifyAI(LLM):
         # TODO (urgent): Fetch the actual maximum context length from Unify.
         # This is a placeholder value - it might be inaccurate.
         return 4096 - max_new_tokens
+
+    @retry(
+        retry=retry_if_exception_type(Exception),
+        wait=wait_exponential(multiplier=1.5, min=2, max=10),
+        stop=stop_any(Exception),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+        after=after_log(logger, logging.DEBUG),
+    )
+    def retry_wrapper(self, func: Callable, **kwargs) -> Any:
+        """Retry wrapper for API calls."""
+        return func(**kwargs)
 
     def _run_batch(
         self,
@@ -187,7 +225,7 @@ class UnifyAI(LLM):
                 If `n` is greater than 1, each element is a list of strings (multiple responses per prompt).
 
         Raises:
-            UnifyException: If there's an error during API interaction.
+            Exception: If there's an error during API interaction.
         """
         prompts = inputs
 
@@ -216,7 +254,7 @@ class UnifyAI(LLM):
             try:
                 # Assuming Unify's API is similar to OpenAI's
                 response = self.retry_wrapper(
-                    func=self._client._generate,  # Access the protected method
+                    func=self.client.generate,  # Access the protected method
                     user_message=prompt,
                     temperature=temperature,
                     top_p=top_p,
@@ -224,7 +262,6 @@ class UnifyAI(LLM):
                     n=n,
                     **kwargs,
                 )
-
                 # Assuming Unify returns generated text within a 'choices' list
                 # Adapt based on the actual API response structure
                 if isinstance(response, str):
@@ -237,9 +274,7 @@ class UnifyAI(LLM):
                 else:
                     raise ValueError("Unexpected response format from Unify API")
             except Exception as e:
-                raise UnifyException(
-                    f"Error during Unify API call: {str(e)}"
-                )
+                raise Exception(f"Error during Unify API call: {str(e)}")
 
         # Use thread pool for parallel processing
         generated_texts_batch = list(
@@ -283,11 +318,11 @@ class UnifyAI(LLM):
             logit_bias (Dict[int, float], optional): Logit bias for specific tokens.
             batch_size (int, optional): The batch size for processing prompts.
             seed (int, optional): Random seed for reproducibility.
-            return_generator (bool, optional): If True, returns a generator for streaming responses. 
+            return_generator (bool, optional): If True, returns a generator for streaming responses.
                                               Otherwise, returns a list of responses.
 
         Returns:
-            Union[Generator[str, None, None], List[str], List[List[str]]]: 
+            Union[Generator[str, None, None], List[str], List[List[str]]]:
                 - If `return_generator` is True, returns a generator yielding strings (streaming responses).
                 - If `return_generator` is False and `n` is 1, returns a list of strings (one response per prompt).
                 - If `return_generator` is False and `n` is greater than 1, returns a list of lists of strings (multiple responses per prompt).
@@ -331,10 +366,8 @@ class UnifyAI(LLM):
 
     def unload_model(self):
         """Unloads the model and performs cleanup."""
-        if "client" in self.__dict__:
-            del self.__dict__["client"]
-        if "_async_client" in self.__dict__:
-            del self.__dict__["_async_client"]
+        self.unify_client = None
+        self.async_unify_client = None
         for pool in self.executor_pools.values():
             pool.shutdown()
         self.executor_pools.clear()
@@ -348,5 +381,6 @@ class UnifyAI(LLM):
         state.pop("_async_client", None)
         state["executor_pools"].clear()
         return state
+
 
 __all__ = ["UnifyAI"]
