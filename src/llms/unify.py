@@ -48,8 +48,8 @@ class UnifyAI(LLM):
         provider: Optional[str] = None,
         #Initializes the UnifyAI instance.
        
-        unify_client: Optional[UnifyClient] = None
-        async_unify_client: Optional[AsyncUnifyClient] = None
+        unify_client: Optional[UnifyClient] = None,
+        async_unify_client: Optional[AsyncUnifyClient] = None,
         **kwargs,
     ):
         """
