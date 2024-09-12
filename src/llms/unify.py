@@ -18,9 +18,7 @@ from tenacity import (
 
 try:
     from unify.clients import Unify as UnifyClient, AsyncUnify as AsyncUnifyClient
-except ImportError:
-    logger.error("`unify` not installed")
-    raise
+
 
 from ..utils import ring_utils as ring
 from ..utils.fs_utils import safe_fn
@@ -49,9 +47,11 @@ class UnifyAI(LLM):
         base_url: Optional[str] = None,
         api_version: Optional[str] = None,
         provider: Optional[str] = None,
-        **kwargs,
+        #Initializes the UnifyAI instance.
+       
         unify_client: Optional[UnifyClient] = None
         async_unify_client: Optional[AsyncUnifyClient] = None
+        **kwargs,
     ):
         """
         Initializes the UnifyAI instance.
