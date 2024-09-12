@@ -16,8 +16,7 @@ from tenacity import (
     wait_exponential,
 )
 
-try:
-    from unify.clients import Unify as UnifyClient, AsyncUnify as AsyncUnifyClient
+from unify.clients import Unify as UnifyClient, AsyncUnify as AsyncUnifyClient
 
 
 from ..utils import ring_utils as ring
