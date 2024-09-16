@@ -180,7 +180,6 @@ class UnifyAI(LLM):
         return self.async_unify_client
 
     @ring.lru(maxsize=5000)
-    @cached_property
     def tokenizer(self) -> Encoding:
         try:
             return tiktoken.encoding_for_model(self.model_name)
