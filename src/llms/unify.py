@@ -14,6 +14,7 @@ from typing import (
     cast,
     Dict,
 )
+import tiktoken 
 from tiktoken import Encoding
 
 from tenacity import (
@@ -257,7 +258,7 @@ class UnifyAI(LLM):
         return len(self.tokenizer.encode(value))
 
     @retry(
-        retry=retry_if_exception_type(Exception),
+        retry=retry_if_exception,
         wait=wait_exponential(multiplier=1.5, min=2, max=10),
         stop=stop_any(Exception),
         before_sleep=before_sleep_log(logger, logging.WARNING),
