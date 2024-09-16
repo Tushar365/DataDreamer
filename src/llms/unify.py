@@ -32,7 +32,6 @@ except ImportError:
         "Could not import unify client, please install it with `pip install unify-client`"
     )
 
-
 from ..utils import ring_utils as ring
 from ..utils.fs_utils import safe_fn
 from .llm import (
@@ -43,6 +42,40 @@ from .llm import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_model_name(model_name: str):  # pragma: no cover
+    """Normalize the model name to be consistent with tiktoken."""
+    return model_name.replace("gpt-3.5-turbo", "gpt-3.5-turbo-0301")
+
+
+def _is_chat_model(model_name: str):  # pragma: no cover
+    """Check if the model is a chat model."""
+    return "turbo" in model_name or "gpt-4" in model_name
+
+
+def _is_gpt_3_5(model_name: str):  # pragma: no cover
+    """Check if the model is a GPT-3.5 variant."""
+    return "gpt-3.5" in model_name
+
+
+def _is_gpt_3_5_legacy(model_name: str):  # pragma: no cover
+    """Check if the model is a legacy GPT-3.5 variant."""
+    return "gpt-3.5-turbo-0301" in model_name
+
+
+def _is_128k_model(model_name: str):  # pragma: no cover
+    return (
+        model_name == "gpt-3.5-turbo-16k"
+        or model_name == "gpt-3.5-turbo-16k-0613"
+        or model_name == "gpt-4-32k"
+        or model_name == "gpt-4-32k-0613"
+    )
+
+
+def _is_gpt_mini(model_name: str):  # pragma: no cover
+    """Check if the model is a GPT-mini variant."""
+    return "gpt-3.5-turbo-0613" in model_name or "gpt-4-0613" in model_name
 
 
 class UnifyAI(LLM):
@@ -124,7 +157,6 @@ class UnifyAI(LLM):
             self.unify_client = UnifyClient(**_additional_params)
         return self.unify_client
 
-
     @property
     def _async_client(self) -> AsyncUnifyClient:
         if self.async_unify_client is None:
@@ -148,16 +180,18 @@ class UnifyAI(LLM):
         return self.async_unify_client
 
     @ring.lru(maxsize=5000)
-    
     @cached_property
     def tokenizer(self) -> Encoding:
         try:
             return tiktoken.encoding_for_model(self.model_name)
-        except KeyError:  # pragma: no cover
+        except KeyError:
+            logger.warning(
+                f"Could not find encoding for model {self.model_name}. Using cl100k_base."
+            )
             return tiktoken.get_encoding("cl100k_base")
-            
+
     @ring.lru(maxsize=128)
-    def get_max_context_length(self, max_new_tokens: int) -> int:  # pragma: no cover
+    def get_max_context_length(self, max_new_tokens: int = 0) -> int:
         """Gets the maximum context length for the model. When ``max_new_tokens`` is
         greater than 0, the maximum number of tokens that can be used for the prompt
         context is returned.
@@ -167,14 +201,16 @@ class UnifyAI(LLM):
 
         Returns:
             The maximum context length.
-        """  # pragma: no cover
+        """
         model_name = _normalize_model_name(self.model_name)
         format_tokens = 0
         if _is_chat_model(model_name):
             # Each message is up to 4 tokens and there are 3 messages
             # (system prompt, user prompt, assistant response)
             # and then we have to account for the system prompt
-            format_tokens = 4 * 3 + self.count_tokens(cast(str, self.system_prompt))
+            format_tokens = 4 * 3 + self.count_tokens(
+                cast(str, self.system_prompt)
+            )
         if "32k" in model_name:
             max_context_length = 32768
         elif "16k" in model_name:
@@ -199,7 +235,7 @@ class UnifyAI(LLM):
             max_context_length = 8192
         return max_context_length - max_new_tokens - format_tokens
 
-    def _get_max_output_length(self) -> None | int:  # pragma: no cover
+    def _get_max_output_length(self) -> None | int:
         if _is_128k_model(self.model_name) and _is_gpt_mini(self.model_name):
             return 16384
         elif _is_128k_model(self.model_name) or (
@@ -219,9 +255,8 @@ class UnifyAI(LLM):
         Returns:
             The number of tokens in the string.
         """
-        pass
         return len(self.tokenizer.encode(value))
-        
+
     @retry(
         retry=retry_if_exception_type(Exception),
         wait=wait_exponential(multiplier=1.5, min=2, max=10),
