@@ -148,10 +148,70 @@ class UnifyAI(LLM):
         return self.async_unify_client
 
     @ring.lru(maxsize=5000)
+    
+    @cached_property
+    def tokenizer(self) -> Encoding:
+        try:
+            return tiktoken.encoding_for_model(self.model_name)
+        except KeyError:  # pragma: no cover
+            return tiktoken.get_encoding("cl100k_base")
+            
+    @ring.lru(maxsize=128)
+    def get_max_context_length(self, max_new_tokens: int) -> int:  # pragma: no cover
+        """Gets the maximum context length for the model. When ``max_new_tokens`` is
+        greater than 0, the maximum number of tokens that can be used for the prompt
+        context is returned.
+
+        Args:
+            max_new_tokens: The maximum number of tokens that can be generated.
+
+        Returns:
+            The maximum context length.
+        """  # pragma: no cover
+        model_name = _normalize_model_name(self.model_name)
+        format_tokens = 0
+        if _is_chat_model(model_name):
+            # Each message is up to 4 tokens and there are 3 messages
+            # (system prompt, user prompt, assistant response)
+            # and then we have to account for the system prompt
+            format_tokens = 4 * 3 + self.count_tokens(cast(str, self.system_prompt))
+        if "32k" in model_name:
+            max_context_length = 32768
+        elif "16k" in model_name:
+            max_context_length = 16384
+        elif _is_128k_model(model_name):
+            max_context_length = 128000
+        elif _is_gpt_3_5(self.model_name):
+            if _is_gpt_3_5_legacy(self.model_name):
+                max_context_length = 4096
+            else:
+                max_context_length = 16385
+        elif model_name.startswith("text-davinci"):
+            max_context_length = 4097
+        elif model_name.startswith("code-davinci"):
+            max_context_length = 8001
+        elif any(
+            model_name.startswith(prefix)
+            for prefix in ["text-curie", "text-babbage", "text-ada"]
+        ) or model_name in ["ada", "babbage", "curie", "davinci"]:
+            max_context_length = 2049
+        else:
+            max_context_length = 8192
+        return max_context_length - max_new_tokens - format_tokens
+
+    def _get_max_output_length(self) -> None | int:  # pragma: no cover
+        if _is_128k_model(self.model_name) and _is_gpt_mini(self.model_name):
+            return 16384
+        elif _is_128k_model(self.model_name) or (
+            _is_gpt_3_5(self.model_name) and not (_is_gpt_3_5_legacy(self.model_name))
+        ):
+            return 4096
+        else:
+            return None
+
+    @ring.lru(maxsize=5000)
     def count_tokens(self, value: str) -> int:
         """Counts the number of tokens in a string.
-
-        This method should use the Unify API or a compatible tokenizer to accurately count tokens.
 
         Args:
             value: The string to count tokens for.
@@ -159,23 +219,9 @@ class UnifyAI(LLM):
         Returns:
             The number of tokens in the string.
         """
-        # TODO (urgent): Replace placeholder with actual token counting using Unify API
-        #  or a tokenizer that aligns with how Unify counts tokens.
-        return len(value.split())
-
-    def get_max_context_length(self, max_new_tokens: int = 0) -> int:
-        """Gets the maximum context length for the model.
-
-        Args:
-            max_new_tokens: The maximum number of tokens that can be generated.
-
-        Returns:
-            The maximum context length.
-        """
-        # TODO (urgent): Fetch the actual maximum context length from Unify.
-        # This is a placeholder value - it might be inaccurate.
-        return 4096 - max_new_tokens
-
+        pass
+        return len(self.tokenizer.encode(value))
+        
     @retry(
         retry=retry_if_exception_type(Exception),
         wait=wait_exponential(multiplier=1.5, min=2, max=10),
