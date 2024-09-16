@@ -2,7 +2,7 @@ import os
 import unittest
 from unittest.mock import MagicMock, patch
 
-from langchain.llms import UnifyAI
+from src.llms import UnifyAI
 
 
 class TestUnifyAI(unittest.TestCase):
